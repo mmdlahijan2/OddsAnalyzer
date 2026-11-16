@@ -93,11 +93,18 @@ public final class OfflineMarketEngine {
         add(h,t,"بیشتر از\\s*"+Pattern.quote(l),"OVER"); add(h,t,"کمتر از\\s*"+Pattern.quote(l),"UNDER");
         add(h,t,"بالای\\s*"+Pattern.quote(l),"OVER"); add(h,t,"زیر\\s*"+Pattern.quote(l),"UNDER");
     }
+    // Read the line only when it is attached to an Over/Under label; odds values elsewhere are ignored.
     private static String singleLine(String t,boolean signed){
-        String sign=signed?"[+-]?":"";
-        Matcher m=Pattern.compile("(?<![\\d.])("+sign+"[0-9]{1,2}(?:\\.[02578])?)(?![\\d.])").matcher(t);
+        String number=(signed?"[+-]?":"")+"[0-9]{1,2}(?:\\.[02578])?";
         ArrayList<String> vals=new ArrayList<>();
+        Matcher m=Pattern.compile("(?<![a-z])(?:over|under)\\s*("+number+")").matcher(t);
         while(m.find())if(!vals.contains(m.group(1)))vals.add(m.group(1));
+        m=Pattern.compile("(?:بیشتر از|کمتر از|بالای|زیر)\\s*("+number+")").matcher(t);
+        while(m.find())if(!vals.contains(m.group(1)))vals.add(m.group(1));
+        if(signed){
+            m=Pattern.compile("(?:handicap|hcap|هندیکپ)\\s*("+number+")").matcher(t);
+            while(m.find())if(!vals.contains(m.group(1)))vals.add(m.group(1));
+        }
         return vals.size()==1?vals.get(0):null;
     }
     private static void add(ArrayList<Hit> h,String t,String regex,String value){

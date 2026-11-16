@@ -122,7 +122,10 @@ public final class OfflineMarketEngine {
         boolean h2=has(t,"second half","2nd half","2h","نیمه دوم");
         boolean et=has(t,"extra time","overtime","وقت اضافه");
         boolean ft=has(t,"full time","90 minutes","90 min","کل مسابقه","پایان مسابقه","وقت قانونی","تمام وقت");
-        if((h1?1:0)+(h2?1:0)+(et?1:0)+(ft?1:0)!=1)return null;
+        int explicit=(h1?1:0)+(h2?1:0)+(et?1:0)+(ft?1:0);
+        if(explicit>1)return null;
+        // Standard 90-minute markets often omit an explicit period label.
+        if(explicit==0)return "FT";
         return h1?"1H":h2?"2H":et?"ET":"FT";
     }
     private static boolean has(String t,String... words){for(String w:words)if(t.contains(w))return true;return false;}

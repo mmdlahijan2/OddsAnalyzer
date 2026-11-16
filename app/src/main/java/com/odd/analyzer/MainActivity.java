@@ -227,7 +227,7 @@ public class MainActivity extends Activity {
         if(bold)b.setSpan(new StyleSpan(Typeface.BOLD),st,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
     private static class SiteResult{final String host,title;final JSONArray groups;SiteResult(String h,String t,JSONArray g){host=h;title=t;groups=g;}}
-    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();MarketAtSite(String h,JSONObject s){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{odds.add(Double.parseDouble(a.optString(i).replace(",",".")));}catch(Exception ignored){}}}}
+    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{odds.add(Double.parseDouble(a.optString(i).replace(",",".")));}catch(Exception ignored){}}SemanticMarketMatcher.Parsed p=SemanticMarketMatcher.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}super.onDestroy();}
 }

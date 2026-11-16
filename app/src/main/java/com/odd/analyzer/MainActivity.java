@@ -209,6 +209,19 @@ public class MainActivity extends Activity {
             }
         }
         if(common.isEmpty())add(out,"بازار مشترک قابل‌تطبیقی پیدا نشد. ممکن است سایت‌ها بازار را با نام یا ساختار متفاوت نمایش دهند، یا استخراج ضرایب کامل نباشد.\n",Color.rgb(180,83,9),true);
+        if(common.isEmpty()){
+            add(out,"\nنمونه داده‌های خام استخراج‌شده برای عیب‌یابی:\n",Color.rgb(180,83,9),true);
+            for(SiteResult site:results){
+                add(out,"\n"+site.host+":\n",Color.rgb(15,23,42),true);
+                for(int gi=0;gi<Math.min(5,site.groups.length());gi++){
+                    JSONObject sample=site.groups.optJSONObject(gi);if(sample==null)continue;
+                    JSONArray sampleOdds=sample.optJSONArray("odds");
+                    String sampleText=sample.optString("text","").replaceAll("\\s+"," ").trim();
+                    if(sampleText.length()>220)sampleText=sampleText.substring(0,220)+"…";
+                    add(out,"• "+(sampleOdds==null?"[]":sampleOdds.toString())+" | "+sampleText+"\n",Color.rgb(71,85,105),false);
+                }
+            }
+        }
         int idx=0,arb=0;
         for(Map.Entry<String,ArrayList<MarketAtSite>> entry:common.entrySet()){
             ArrayList<MarketAtSite> list=entry.getValue();int n=list.get(0).odds.size();if(n<2||n>3)continue;

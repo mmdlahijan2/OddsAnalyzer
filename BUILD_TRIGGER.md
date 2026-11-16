@@ -1,0 +1,1 @@
+Trigger a clean GitHub Actions build after all Android project files were committed.

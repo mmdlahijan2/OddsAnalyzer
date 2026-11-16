@@ -1,0 +1,1 @@
+Build trigger for Persian market explanations and recommendation indicators.

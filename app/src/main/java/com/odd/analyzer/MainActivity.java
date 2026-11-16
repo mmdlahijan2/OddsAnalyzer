@@ -116,7 +116,7 @@ public class MainActivity extends Activity {
     private void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(14),dp(10),dp(14),dp(8));root.setBackgroundColor(Color.rgb(246,248,251));
         root.addView(label("OddsAnalyzer | مقایسه چندسایتی",22,Color.rgb(15,23,42),true));
-        TextView intro=label("تعداد سایت‌ها را انتخاب کن و لینک همان مسابقه را در هر سایت وارد کن. برنامه فقط بازارهای قابل‌تطبیق را مقایسه می‌کند.",13,Color.rgb(71,85,105),false);
+        TextView intro=label("لینک مسابقه‌ها را وارد کن؛ دریافت ضرایب اینترنتی است اما تحلیل و تطبیق بازارها کاملاً روی گوشی انجام می‌شود.",13,Color.rgb(71,85,105),false);
         intro.setPadding(0,dp(5),0,dp(6));root.addView(intro);
         countSpinner=new Spinner(this);
         String[] counts={"۲ سایت","۳ سایت","۴ سایت"};
@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
     private MarketAtSite findMarket(SiteResult site,String key){
         for(int i=0;i<site.groups.length();i++){
             JSONObject g=site.groups.optJSONObject(i);if(g==null)continue;
-            if(key.equals(marketKey(g)))return new MarketAtSite(site.host,g,null);
+            if(key.equals(marketKey(g)))return new MarketAtSite(site.host,g);
         }
         return null;
     }
@@ -283,7 +283,7 @@ public class MainActivity extends Activity {
         if(bold)b.setSpan(new StyleSpan(Typeface.BOLD),st,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
     private static class SiteResult{final String host,title;final JSONArray groups;final JSONObject diagnostics;SiteResult(String h,String t,JSONArray g,JSONObject d){host=h;title=t;groups=g;diagnostics=d;}}
-    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s,JSONArray aiOutcomes){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{double v=Double.parseDouble(a.optString(i).replace(",","."));if(Double.isFinite(v)&&v>1.0&&v<=1000)odds.add(v);}catch(Exception ignored){}}if(aiOutcomes!=null){for(int i=0;i<aiOutcomes.length();i++)outcomes.add(aiOutcomes.optString(i));}else{OfflineMarketEngine.Parsed p=OfflineMarketEngine.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}}
+    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{double v=Double.parseDouble(a.optString(i).replace(",","."));if(Double.isFinite(v)&&v>1.0&&v<=1000)odds.add(v);}catch(Exception ignored){}}OfflineMarketEngine.Parsed p=OfflineMarketEngine.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}super.onDestroy();}
 }

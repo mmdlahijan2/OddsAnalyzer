@@ -43,29 +43,67 @@ public class MainActivity extends Activity {
     private JSONArray currentGroups=new JSONArray();
     private String currentTitle="", lastSignature="";
     private boolean waitingForPage=false;
+    private JSONObject lastDiagnostics=new JSONObject();
 
     private static final String EXTRACT_SCRIPT = """
       (function() {
-        try {
-          const visible=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';};
-          const odd=t=>{const v=String(t||'').trim().replace(',','.');return /^\\d{1,3}(?:\\.\\d{1,3})?$/.test(v)&&Number(v)>=1.01&&Number(v)<=1000;};
-          const leaves=[...document.querySelectorAll('button,[role="button"],a,span,div')].filter(e=>visible(e)&&odd(e.innerText||e.textContent)&&![...e.children].some(c=>odd(c.innerText||c.textContent)));
-          const groups=new Map();
-          for(const el of leaves){
-            let p=el.parentElement,chosen=null;
-            for(let depth=0;p&&depth<5;depth++,p=p.parentElement){
-              const os=[...p.querySelectorAll('button,[role="button"],a,span,div')].filter(x=>visible(x)&&odd(x.innerText||x.textContent)&&![...x.children].some(c=>odd(c.innerText||c.textContent)));
-              const vals=os.map(x=>String(x.innerText||x.textContent).trim().replace(',','.'));
-              if(vals.length>=2&&vals.length<=3){chosen={node:p,odds:vals};break;}
-            }
-            if(chosen){
-              const raw=String(chosen.node.innerText||chosen.node.textContent||'').replace(/\\s+/g,' ').trim().slice(0,420);
-              const key=chosen.odds.join('|')+'::'+raw;
-              if(!groups.has(key))groups.set(key,{text:raw,odds:chosen.odds});
+        const docs=[document], seen=new Set(), frameInfo={total:0,accessible:0,blocked:0};
+        function addFrames(doc){
+          if(seen.has(doc))return; seen.add(doc);
+          let frames=[];try{frames=[...doc.querySelectorAll('iframe,frame')];}catch(e){}
+          frameInfo.total+=frames.length;
+          for(const fr of frames){
+            try{
+              const child=fr.contentDocument;
+              if(child&&child.documentElement){frameInfo.accessible++;docs.push(child);addFrames(child);}
+              else frameInfo.blocked++;
+            }catch(e){frameInfo.blocked++;}
+          }
+        }
+        function visible(e,w){
+          try{const r=e.getBoundingClientRect(),s=w.getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';}
+          catch(x){return false;}
+        }
+        function odd(t){
+          const v=String(t||'').trim().replace(',','.');
+          return /^\\d{1,3}(?:\\.\\d{1,3})?$/.test(v)&&Number(v)>=1.01&&Number(v)<=1000;
+        }
+        try{
+          addFrames(document);
+          const groups=new Map();let candidates=0,docTexts=0;
+          for(const doc of docs){
+            let w=doc.defaultView||window;
+            try{docTexts+=String(doc.body?.innerText||'').length;}catch(e){}
+            const nodes=[...doc.querySelectorAll('button,[role="button"],a,span,div')];
+            const leaves=nodes.filter(e=>visible(e,w)&&odd(e.innerText||e.textContent)&&
+              ![...e.children].some(ch=>odd(ch.innerText||ch.textContent)));
+            candidates+=leaves.length;
+            for(const el of leaves){
+              let p=el.parentElement,chosen=null;
+              for(let depth=0;p&&depth<6;depth++,p=p.parentElement){
+                const os=[...p.querySelectorAll('button,[role="button"],a,span,div')]
+                  .filter(x=>visible(x,w)&&odd(x.innerText||x.textContent)&&
+                    ![...x.children].some(ch=>odd(ch.innerText||ch.textContent)));
+                const vals=os.map(x=>String(x.innerText||x.textContent).trim().replace(',','.'));
+                if(vals.length>=2&&vals.length<=3){chosen={node:p,odds:vals};break;}
+              }
+              if(chosen){
+                const raw=String(chosen.node.innerText||chosen.node.textContent||'').replace(/\\s+/g,' ').trim().slice(0,420);
+                const key=chosen.odds.join('|')+'::'+raw;
+                if(!groups.has(key))groups.set(key,{text:raw,odds:chosen.odds});
+              }
             }
           }
-          if(window.OddsBridge)window.OddsBridge.onData(JSON.stringify({url:location.href,title:document.title,groups:[...groups.values()].slice(0,80)}));
-        }catch(e){if(window.OddsBridge)window.OddsBridge.onData(JSON.stringify({error:String(e)}));}
+          const bodyText=String(document.body?.innerText||'').toLowerCase();
+          const loginHint=/log in|login|sign in|ورود به حساب|captcha|verify you are human|security check/.test(bodyText);
+          const diagnostics={frames:frameInfo.total,accessibleFrames:frameInfo.accessible,blockedFrames:frameInfo.blocked,
+            oddsCandidates:candidates,bodyTextLength:docTexts,loginHint:loginHint};
+          if(window.OddsBridge)window.OddsBridge.onData(JSON.stringify({
+            url:location.href,title:document.title,groups:[...groups.values()].slice(0,100),diagnostics:diagnostics
+          }));
+        }catch(e){
+          if(window.OddsBridge)window.OddsBridge.onData(JSON.stringify({error:String(e),groups:[],diagnostics:frameInfo}));
+        }
       })();
     """;
 
@@ -106,7 +144,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new OddsBridge(),"OddsBridge");webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient(){@Override public void onPageFinished(WebView view,String url){
             if(!waitingForPage)return;status.setText("سایت "+(siteIndex+1)+" باز شد؛ در حال خواندن ضرایب...");
-            polls=0;lastSignature="";currentGroups=new JSONArray();currentTitle="";
+            polls=0;lastSignature="";currentGroups=new JSONArray();currentTitle="";lastDiagnostics=new JSONObject();
             handler.removeCallbacks(pollTask);handler.postDelayed(pollTask,1400);
         }});
         root.addView(webView,new LinearLayout.LayoutParams(1,1));setContentView(root);
@@ -137,15 +175,17 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(EXTRACT_SCRIPT,null);handler.postDelayed(this,1800);
     }};
     private class OddsBridge{@JavascriptInterface public void onData(String json){runOnUiThread(()->{
-        try{JSONObject d=new JSONObject(json);JSONArray g=d.optJSONArray("groups");if(g!=null&&g.length()>0){currentGroups=g;currentTitle=d.optString("title","");String sig=g.toString();
-            if(sig.equals(lastSignature)){finishCurrentSite();return;}lastSignature=sig;}}
+        try{JSONObject d=new JSONObject(json);JSONArray g=d.optJSONArray("groups");JSONObject diag=d.optJSONObject("diagnostics");if(diag!=null)lastDiagnostics=diag;
+            if(g!=null&&g.length()>0){currentGroups=g;currentTitle=d.optString("title","");String sig=g.toString();
+              if(sig.equals(lastSignature)){finishCurrentSite();return;}lastSignature=sig;}}
         catch(Exception ignored){}
     });}}
     private void finishCurrentSite(){
         if(!waitingForPage)return;waitingForPage=false;handler.removeCallbacks(pollTask);
         String url=urlInputs[siteIndex].getText().toString().trim();
-        results.add(new SiteResult(host(url),currentTitle,currentGroups));
-        status.setText("سایت "+(siteIndex+1)+" تمام شد؛ "+currentGroups.length()+" گروه ضریب پیدا شد.");
+        results.add(new SiteResult(host(url),currentTitle,currentGroups,lastDiagnostics));
+        String reason=extractionReason(currentGroups,lastDiagnostics);
+        status.setText("سایت "+(siteIndex+1)+" تمام شد؛ "+currentGroups.length()+" گروه ضریب. "+reason);
         siteIndex++;handler.postDelayed(()->loadCurrentSite(),700);
     }
     private void showComparison(){
@@ -202,6 +242,18 @@ public class MainActivity extends Activity {
         add(out,"هشدار مهم: این نسخه فقط بازارهای مجموع گل و هر دو تیم گل می‌زنند را در صورت شناسایی روشن گزینه‌ها تطبیق می‌دهد. بازارهای ناشناخته یا مبهم حذف می‌شوند. تطبیق مسابقه، قوانین تسویه، زمان و ضرایب زنده را پیش از هر تصمیم دستی بررسی کن؛ تیک سبز تضمین سود یا امکان ثبت شرط نیست.\n",Color.rgb(180,83,9),true);
         analysis.setText(out);status.setText("مقایسه تمام شد؛ "+common.size()+" بازار مشترک پیدا شد و "+arb+" نامزد آربیتراژ محاسباتی.");
     }
+    private String extractionReason(JSONArray groups,JSONObject d){
+        if(groups!=null&&groups.length()>0)return "استخراج موفق";
+        int frames=d==null?0:d.optInt("frames",0),blocked=d==null?0:d.optInt("blockedFrames",0);
+        int accessible=d==null?0:d.optInt("accessibleFrames",0),candidates=d==null?0:d.optInt("oddsCandidates",0);
+        int text=d==null?0:d.optInt("bodyTextLength",0);
+        if(d!=null&&d.optBoolean("loginHint",false))return "احتمالاً صفحه ورود/تأیید نمایش داده شده؛ نیازمند بررسی دستی";
+        if(frames>0&&blocked>0&&accessible==0)return "ضرایب احتمالاً داخل iframe بین‌دامنه‌ای هستند و از صفحه اصلی قابل‌خواندن نیستند";
+        if(candidates>0)return "اعداد شبیه ضریب دیده شد، اما گروه کامل ضرایب شناسایی نشد";
+        if(text<80)return "محتوای صفحه بسیار کم است؛ احتمال بارگذاری ناقص";
+        if(frames>0&&blocked>0)return "بخشی از iframeها به‌دلیل محدودیت دسترسی مرورگر قابل‌خواندن نیستند";
+        return "صفحه خوانده شد، اما ساختار ضرایب شناسایی نشد";
+    }
     private double readBankroll(){try{double x=Double.parseDouble(bankrollInput.getText().toString().trim());if(x>0&&Double.isFinite(x))return x;}catch(Exception ignored){}return 100;}
     private MarketAtSite findMarket(SiteResult site,String key){
         for(int i=0;i<site.groups.length();i++){JSONObject g=site.groups.optJSONObject(i);if(g!=null&&key.equals(marketKey(g)))return new MarketAtSite(site.host,g);}
@@ -226,7 +278,7 @@ public class MainActivity extends Activity {
         int st=b.length();b.append(s);b.setSpan(new ForegroundColorSpan(color),st,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         if(bold)b.setSpan(new StyleSpan(Typeface.BOLD),st,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
-    private static class SiteResult{final String host,title;final JSONArray groups;SiteResult(String h,String t,JSONArray g){host=h;title=t;groups=g;}}
+    private static class SiteResult{final String host,title;final JSONArray groups;final JSONObject diagnostics;SiteResult(String h,String t,JSONArray g,JSONObject d){host=h;title=t;groups=g;diagnostics=d;}}
     private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{odds.add(Double.parseDouble(a.optString(i).replace(",",".")));}catch(Exception ignored){}}SemanticMarketMatcher.Parsed p=SemanticMarketMatcher.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}super.onDestroy();}

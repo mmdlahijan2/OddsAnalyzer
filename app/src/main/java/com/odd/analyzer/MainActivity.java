@@ -152,7 +152,7 @@ public class MainActivity extends Activity {
         SpannableStringBuilder out=new SpannableStringBuilder();
         add(out,"نتیجه مقایسه "+siteCount+" سایت\n",Color.rgb(15,23,42),true);
         for(SiteResult s:results)add(out,"• "+s.host+" — "+s.groups.length()+" گروه ضریب\n",Color.rgb(71,85,105),false);
-        add(out,"\nبازارهای مشترک با متن تقریباً یکسان بررسی می‌شوند.\n\n",Color.rgb(51,65,85),false);
+        add(out,"\nبازارها با مشخصات استانداردشده و نام گزینه‌ها تطبیق داده می‌شوند؛ موارد نامطمئن کنار گذاشته می‌شوند.\n\n",Color.rgb(51,65,85),false);
         LinkedHashMap<String,ArrayList<MarketAtSite>> common=new LinkedHashMap<>();
         if(!results.isEmpty()){
             JSONArray first=results.get(0).groups;
@@ -171,10 +171,16 @@ public class MainActivity extends Activity {
         int idx=0,arb=0;
         for(Map.Entry<String,ArrayList<MarketAtSite>> entry:common.entrySet()){
             ArrayList<MarketAtSite> list=entry.getValue();int n=list.get(0).odds.size();if(n<2||n>3)continue;
-            double[] best=new double[n];String[] bestSite=new String[n];boolean compatible=true;
+            java.util.LinkedHashSet<String> outcomeSet=new java.util.LinkedHashSet<>(list.get(0).outcomes);
+            if(outcomeSet.size()!=n || outcomeSet.contains("UNKNOWN"))continue;
+            boolean compatible=true;
+            for(MarketAtSite m:list){if(m.outcomes.size()!=n || !outcomeSet.equals(new java.util.LinkedHashSet<>(m.outcomes))){compatible=false;break;}}
+            if(!compatible)continue;
+            ArrayList<String> outcomes=new ArrayList<>(outcomeSet);
+            double[] best=new double[n];String[] bestSite=new String[n];
             for(int k=0;k<n;k++){
                 best[k]=0;
-                for(MarketAtSite m:list){if(m.odds.size()!=n){compatible=false;break;}double x=m.odds.get(k);if(x>best[k]){best[k]=x;bestSite[k]=m.host;}}
+                for(MarketAtSite m:list){int oi=m.outcomes.indexOf(outcomes.get(k));if(oi<0){compatible=false;break;}double x=m.odds.get(oi);if(x>best[k]){best[k]=x;bestSite[k]=m.host;}}
             }
             if(!compatible)continue;
             double sum=0;for(double x:best)sum+=1.0/x;
@@ -183,8 +189,8 @@ public class MainActivity extends Activity {
             JSONObject firstMarket=list.get(0).source;
             add(out,(sure?"✅ ":"🔎 ")+"بازار مشترک "+idx+"\n",sure?Color.rgb(21,128,61):Color.rgb(37,99,235),true);
             add(out,makeReadableTitle(firstMarket.optString("text",""))+"\n",Color.rgb(15,23,42),true);
-            add(out,"بهترین ضرایب (به ترتیب نمایش سایت):\n",Color.rgb(51,65,85),false);
-            for(int k=0;k<n;k++)add(out,"نتیجه "+(k+1)+": "+String.format(Locale.US,"%.2f",best[k])+" — "+bestSite[k]+"\n",Color.rgb(30,41,59),true);
+            add(out,"بهترین ضرایب (پس از تطبیق نام گزینه‌ها):\n",Color.rgb(51,65,85),false);
+            for(int k=0;k<n;k++)add(out,outcomeLabel(outcomes.get(k))+": "+String.format(Locale.US,"%.2f",best[k])+" — "+bestSite[k]+"\n",Color.rgb(30,41,59),true);
             add(out,"مجموع احتمال ضمنی: "+String.format(Locale.US,"%.2f%%",sum*100)+"\n",Color.rgb(51,65,85),false);
             if(sure){
                 double profit=(1.0/sum-1)*100.0;double payout=bankroll/sum;
@@ -193,7 +199,7 @@ public class MainActivity extends Activity {
             }else add(out,"❌ با بهترین ضرایب فعلی آربیتراژ ریاضی دیده نمی‌شود.\n",Color.rgb(185,28,28),false);
             add(out,"────────────────────────\n",Color.rgb(148,163,184),false);
         }
-        add(out,"هشدار مهم: تطبیق بازار در این نسخه بر اساس شباهت متن صفحه و ترتیب ضرایب است، نه تشخیص قطعی نام هر انتخاب. قبل از هر تصمیم باید مسابقه، خط بازار، بازه زمانی، قوانین تسویه و ترتیب نتایج را در همه سایت‌ها دستی تطبیق بدهی. تیک سبز فقط نامزد محاسباتی است و سود یا امکان ثبت شرط را تضمین نمی‌کند.\n",Color.rgb(180,83,9),true);
+        add(out,"هشدار مهم: این نسخه فقط بازارهای مجموع گل و هر دو تیم گل می‌زنند را در صورت شناسایی روشن گزینه‌ها تطبیق می‌دهد. بازارهای ناشناخته یا مبهم حذف می‌شوند. تطبیق مسابقه، قوانین تسویه، زمان و ضرایب زنده را پیش از هر تصمیم دستی بررسی کن؛ تیک سبز تضمین سود یا امکان ثبت شرط نیست.\n",Color.rgb(180,83,9),true);
         analysis.setText(out);status.setText("مقایسه تمام شد؛ "+common.size()+" بازار مشترک پیدا شد و "+arb+" نامزد آربیتراژ محاسباتی.");
     }
     private double readBankroll(){try{double x=Double.parseDouble(bankrollInput.getText().toString().trim());if(x>0&&Double.isFinite(x))return x;}catch(Exception ignored){}return 100;}
@@ -202,12 +208,15 @@ public class MainActivity extends Activity {
         return null;
     }
     private String marketKey(JSONObject g){
-        String raw=g.optString("text","").toLowerCase(Locale.ROOT);
-        JSONArray a=g.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){
-            String v=a.optString(i,"").trim().replace(",",".");if(!v.isEmpty())raw=raw.replace(v," ");
-        }
-        raw=raw.replaceAll("\\b\\d{1,3}\\.\\d{1,3}\\b"," ").replaceAll("[^\\p{L}\\p{N}]+"," ").replaceAll("\\s+"," ").trim();
-        return raw.length()<5?"":raw;
+        SemanticMarketMatcher.Parsed p=SemanticMarketMatcher.parse(g.optString("text",""),g.optJSONArray("odds"));
+        return p==null?"":p.key;
+    }
+    private String outcomeLabel(String s){
+        if("OVER".equals(s))return "بیشتر از خط";
+        if("UNDER".equals(s))return "کمتر از خط";
+        if("YES".equals(s))return "بله";
+        if("NO".equals(s))return "خیر";
+        return s;
     }
     private String makeReadableTitle(String raw){
         if(raw==null||raw.trim().isEmpty())return "عنوان بازار مشخص نیست";

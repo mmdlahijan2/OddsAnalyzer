@@ -26,6 +26,14 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.net.URI;
+import java.net.URL;
+import java.net.HttpURLConnection;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -33,7 +41,8 @@ import java.util.Map;
 
 public class MainActivity extends Activity {
     private EditText[] urlInputs = new EditText[4];
-    private EditText bankrollInput;
+    private EditText bankrollInput, aiEndpointInput;
+    private final ExecutorService aiExecutor = Executors.newSingleThreadExecutor();
     private Spinner countSpinner;
     private TextView status, analysis;
     private WebView webView;
@@ -130,6 +139,11 @@ public class MainActivity extends Activity {
         }
         bankrollInput=new EditText(this);bankrollInput.setSingleLine(true);bankrollInput.setInputType(8194);bankrollInput.setText("100");bankrollInput.setHint("سرمایه فرضی (مثلاً 100)");
         root.addView(bankrollInput,new LinearLayout.LayoutParams(-1,dp(46)));
+        aiEndpointInput=new EditText(this);aiEndpointInput.setSingleLine(true);aiEndpointInput.setTextSize(13);
+        aiEndpointInput.setHint("آدرس سرور هوش مصنوعی (اختیاری؛ HTTPS)");
+        root.addView(aiEndpointInput,new LinearLayout.LayoutParams(-1,dp(44)));
+        TextView aiNote=label("برای فعال‌سازی تحلیل هوشمند، Worker امن را مستقر و نشانی /match آن را اینجا وارد کن. بدون آن، موتور محلی اجرا می‌شود.",11,Color.rgb(100,116,139),false);
+        root.addView(aiNote);
         countSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
             public void onNothingSelected(android.widget.AdapterView<?> p){}
             public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){
@@ -156,6 +170,8 @@ public class MainActivity extends Activity {
             if(!validUrl(u)){status.setText("آدرس سایت "+(i+1)+" معتبر نیست؛ لینک کامل HTTPS مسابقه را وارد کن.");return;}
             for(int j=0;j<i;j++)if(host(u).equals(host(urlInputs[j].getText().toString().trim()))){status.setText("برای هر ردیف یک سایت متفاوت وارد کن.");return;}
         }
+        String aiEndpoint=aiEndpointInput.getText().toString().trim();
+        if(!aiEndpoint.isEmpty()&&!validUrl(aiEndpoint)){status.setText("نشانی سرور هوش مصنوعی باید یک آدرس کامل HTTPS باشد.");return;}
         handler.removeCallbacks(pollTask);analysis.setText("مقایسه در حال شروع است...");loadCurrentSite();
     }
     private boolean validUrl(String s){
@@ -164,7 +180,7 @@ public class MainActivity extends Activity {
     }
     private String host(String s){try{return URI.create(s).getHost().toLowerCase(Locale.ROOT).replaceFirst("^www\\.","");}catch(Exception e){return s;}}
     private void loadCurrentSite(){
-        if(siteIndex>=siteCount){waitingForPage=false;showComparison();return;}
+        if(siteIndex>=siteCount){waitingForPage=false;analyzeWithAiOrLocal();return;}
         String u=urlInputs[siteIndex].getText().toString().trim();waitingForPage=true;
         status.setText("در حال باز کردن سایت "+(siteIndex+1)+" از "+siteCount+": "+host(u));
         webView.loadUrl(u);
@@ -188,7 +204,74 @@ public class MainActivity extends Activity {
         status.setText("سایت "+(siteIndex+1)+" تمام شد؛ "+currentGroups.length()+" گروه ضریب. "+reason);
         siteIndex++;handler.postDelayed(()->loadCurrentSite(),700);
     }
-    private void showComparison(){
+    private void analyzeWithAiOrLocal(){
+        String endpoint=aiEndpointInput.getText().toString().trim();
+        if(endpoint.isEmpty()){showComparison(null);return;}
+        status.setText("در حال ارسال عناوین و ضرایب به موتور هوش مصنوعی...");
+        JSONArray sites=new JSONArray();
+        try{for(SiteResult site:results){JSONObject item=new JSONObject();item.put("host",site.host);item.put("title",site.title);item.put("groups",site.groups);sites.put(item);}}
+        catch(Exception e){showComparison(null);return;}
+        JSONObject payload=new JSONObject();try{payload.put("sites",sites);}catch(Exception ignored){}
+        aiExecutor.execute(()->{
+            JSONObject response=null;String error="";HttpURLConnection connection=null;
+            try{
+                connection=(HttpURLConnection)new URL(endpoint).openConnection();
+                connection.setRequestMethod("POST");connection.setConnectTimeout(20000);connection.setReadTimeout(60000);
+                connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json; charset=utf-8");
+                byte[] bytes=payload.toString().getBytes(StandardCharsets.UTF_8);connection.setFixedLengthStreamingMode(bytes.length);
+                try(OutputStream os=connection.getOutputStream()){os.write(bytes);}
+                int code=connection.getResponseCode();java.io.InputStream stream=(code>=200&&code<300)?connection.getInputStream():connection.getErrorStream();
+                StringBuilder body=new StringBuilder();
+                if(stream!=null)try(BufferedReader br=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8))){String line;while((line=br.readLine())!=null)body.append(line);}
+                if(code>=200&&code<300){response=new JSONObject(body.toString());if(response.optJSONArray("markets")==null)error="پاسخ سرور ساختار معتبر ندارد";}
+                else error="سرور هوش مصنوعی پاسخ خطا داد (HTTP "+code+")";
+            }catch(Exception e){error="اتصال به سرور هوش مصنوعی برقرار نشد";}
+            finally{if(connection!=null)connection.disconnect();}
+            final JSONObject result=response;final String failure=error;
+            runOnUiThread(()->{
+                if(result!=null&&result.optJSONArray("markets")!=null){showComparison(result);status.setText(status.getText()+" | تطبیق معنایی هوش مصنوعی فعال بود.");}
+                else{showComparison(null);status.setText(status.getText()+" | هوش مصنوعی در دسترس نبود؛ نتیجه فقط از موتور محلی است. "+failure);}
+            });
+        });
+    }
+    private JSONObject findAiMarket(JSONObject ai,int siteIndex,int groupIndex){
+        if(ai==null)return null;JSONArray a=ai.optJSONArray("markets");if(a==null)return null;
+        for(int i=0;i<a.length();i++){JSONObject m=a.optJSONObject(i);if(m!=null&&m.optInt("site_index",-1)==siteIndex&&m.optInt("group_index",-1)==groupIndex)return m;}
+        return null;
+    }
+    private JSONArray trustedAiOutcomes(JSONObject ai,int siteIndex,int groupIndex,JSONObject group){
+        JSONObject m=findAiMarket(ai,siteIndex,groupIndex);if(m==null||m.optDouble("confidence",0)<0.88)return null;
+        String type=m.optString("market_type","UNKNOWN"),period=m.optString("period","UNKNOWN");
+        String line=m.optString("line","").trim(),scope=m.optString("scope",""),participant=m.optString("participant","");
+        if("UNKNOWN".equals(type)||"UNKNOWN".equals(period)||line.isEmpty()||scope.isEmpty())return null;
+        JSONArray outcomes=m.optJSONArray("outcomes"),odds=group.optJSONArray("odds");
+        if(outcomes==null||odds==null||outcomes.length()!=odds.length()||outcomes.length()<2||outcomes.length()>3)return null;
+        java.util.HashSet<String> unique=new java.util.HashSet<>();
+        for(int i=0;i<outcomes.length();i++){String o=outcomes.optString(i,"UNKNOWN");if("UNKNOWN".equals(o)||!unique.add(o))return null;}
+        if("TOTAL_GOALS".equals(type)||"TEAM_TOTAL".equals(type)){
+            if(outcomes.length()!=2||!unique.contains("OVER")||!unique.contains("UNDER")||"NONE".equals(line))return null;
+            if("TEAM_TOTAL".equals(type)&&("NONE".equals(participant)||participant.isEmpty()))return null;
+        }else if("BTTS".equals(type)){
+            if(outcomes.length()!=2||!unique.contains("YES")||!unique.contains("NO"))return null;
+        }else if("MATCH_RESULT".equals(type)){
+            if(outcomes.length()!=3||!unique.contains("HOME")||!unique.contains("DRAW")||!unique.contains("AWAY"))return null;
+        }else if("DOUBLE_CHANCE".equals(type)){
+            if(outcomes.length()!=3)return null;
+            for(int i=0;i<3;i++)if(!java.util.Arrays.asList("HOME_DRAW","HOME_AWAY","DRAW_AWAY").contains(outcomes.optString(i)))return null;
+        }else if("ASIAN_HANDICAP".equals(type)){
+            if(outcomes.length()!=2||!unique.contains("HOME")||!unique.contains("AWAY")||"NONE".equals(line))return null;
+        }else return null;
+        return outcomes;
+    }
+    private String aiMarketKey(JSONObject ai,int siteIndex,int groupIndex,JSONObject group){
+        JSONObject m=findAiMarket(ai,siteIndex,groupIndex);JSONArray outcomes=trustedAiOutcomes(ai,siteIndex,groupIndex,group);
+        if(m==null||outcomes==null)return "";
+        String type=m.optString("market_type"),period=m.optString("period"),line=m.optString("line").trim();
+        String scope=m.optString("scope").trim().toUpperCase(Locale.ROOT);
+        String participant=m.optString("participant","NONE").trim().toLowerCase(Locale.ROOT);
+        return type+"|LINE="+line+"|PERIOD="+period+"|SCOPE="+scope+"|PARTICIPANT="+participant;
+    }
+    private void showComparison(JSONObject ai){
         SpannableStringBuilder out=new SpannableStringBuilder();
         add(out,"نتیجه مقایسه "+siteCount+" سایت\n",Color.rgb(15,23,42),true);
         for(SiteResult s:results)add(out,"• "+s.host+" — "+s.groups.length()+" گروه ضریب\n",Color.rgb(71,85,105),false);
@@ -198,10 +281,11 @@ public class MainActivity extends Activity {
             JSONArray first=results.get(0).groups;
             for(int i=0;i<first.length();i++){
                 JSONObject g=first.optJSONObject(i);if(g==null)continue;
-                String key=marketKey(g);if(key.isEmpty()||common.containsKey(key))continue;
+                String key=ai==null?marketKey(g):aiMarketKey(ai,0,i,g);
+                if(key.isEmpty()||common.containsKey(key))continue;
                 ArrayList<MarketAtSite> matches=new ArrayList<>();boolean all=true;
-                for(SiteResult site:results){
-                    MarketAtSite found=findMarket(site,key);
+                for(int si=0;si<results.size();si++){
+                    MarketAtSite found=findMarket(results.get(si),key,si,ai);
                     if(found==null){all=false;break;}matches.add(found);
                 }
                 if(all)common.put(key,matches);
@@ -239,7 +323,7 @@ public class MainActivity extends Activity {
             }else add(out,"❌ با بهترین ضرایب فعلی آربیتراژ ریاضی دیده نمی‌شود.\n",Color.rgb(185,28,28),false);
             add(out,"────────────────────────\n",Color.rgb(148,163,184),false);
         }
-        add(out,"هشدار مهم: این نسخه فقط بازارهای مجموع گل و هر دو تیم گل می‌زنند را در صورت شناسایی روشن گزینه‌ها تطبیق می‌دهد. بازارهای ناشناخته یا مبهم حذف می‌شوند. تطبیق مسابقه، قوانین تسویه، زمان و ضرایب زنده را پیش از هر تصمیم دستی بررسی کن؛ تیک سبز تضمین سود یا امکان ثبت شرط نیست.\n",Color.rgb(180,83,9),true);
+        add(out,"هشدار مهم: هوش مصنوعی ممکن است عنوان یا گزینه را اشتباه تفسیر کند. برنامه هویت واقعی مسابقه، قوانین تسویه، شرایط مساوی/لغو و زنده‌بودن ضرایب را مستقلاً تأیید نمی‌کند. همه موارد را دستی بررسی کن؛ تیک سبز تضمین سود یا امکان ثبت شرط نیست.\n",Color.rgb(180,83,9),true);
         analysis.setText(out);status.setText("مقایسه تمام شد؛ "+common.size()+" بازار مشترک پیدا شد و "+arb+" نامزد آربیتراژ محاسباتی.");
     }
     private String extractionReason(JSONArray groups,JSONObject d){
@@ -255,8 +339,12 @@ public class MainActivity extends Activity {
         return "صفحه خوانده شد، اما ساختار ضرایب شناسایی نشد";
     }
     private double readBankroll(){try{double x=Double.parseDouble(bankrollInput.getText().toString().trim());if(x>0&&Double.isFinite(x))return x;}catch(Exception ignored){}return 100;}
-    private MarketAtSite findMarket(SiteResult site,String key){
-        for(int i=0;i<site.groups.length();i++){JSONObject g=site.groups.optJSONObject(i);if(g!=null&&key.equals(marketKey(g)))return new MarketAtSite(site.host,g);}
+    private MarketAtSite findMarket(SiteResult site,String key,int siteIndex,JSONObject ai){
+        for(int i=0;i<site.groups.length();i++){
+            JSONObject g=site.groups.optJSONObject(i);if(g==null)continue;
+            String candidate=ai==null?marketKey(g):aiMarketKey(ai,siteIndex,i,g);
+            if(key.equals(candidate)){JSONArray outcomes=ai==null?null:trustedAiOutcomes(ai,siteIndex,i,g);return new MarketAtSite(site.host,g,outcomes);}
+        }
         return null;
     }
     private String marketKey(JSONObject g){
@@ -279,7 +367,7 @@ public class MainActivity extends Activity {
         if(bold)b.setSpan(new StyleSpan(Typeface.BOLD),st,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
     private static class SiteResult{final String host,title;final JSONArray groups;final JSONObject diagnostics;SiteResult(String h,String t,JSONArray g,JSONObject d){host=h;title=t;groups=g;diagnostics=d;}}
-    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{odds.add(Double.parseDouble(a.optString(i).replace(",",".")));}catch(Exception ignored){}}SemanticMarketMatcher.Parsed p=SemanticMarketMatcher.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}
+    private static class MarketAtSite{final String host;final JSONObject source;final ArrayList<Double> odds=new ArrayList<>();final ArrayList<String> outcomes=new ArrayList<>();MarketAtSite(String h,JSONObject s,JSONArray aiOutcomes){host=h;source=s;JSONArray a=s.optJSONArray("odds");if(a!=null)for(int i=0;i<a.length();i++){try{double v=Double.parseDouble(a.optString(i).replace(",","."));if(Double.isFinite(v)&&v>1.0&&v<=1000)odds.add(v);}catch(Exception ignored){}}if(aiOutcomes!=null){for(int i=0;i<aiOutcomes.length();i++)outcomes.add(aiOutcomes.optString(i));}else{SemanticMarketMatcher.Parsed p=SemanticMarketMatcher.parse(s.optString("text",""),a);if(p!=null)outcomes.addAll(p.outcomes);}}}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}super.onDestroy();}
+    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);aiExecutor.shutdownNow();if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}super.onDestroy();}
 }

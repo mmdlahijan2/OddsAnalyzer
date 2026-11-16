@@ -5,6 +5,11 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
+import android.graphics.Typeface;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -21,12 +26,11 @@ import org.json.JSONObject;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
-    private EditText urlInput;
-    private EditText bankrollInput;
-    private TextView status;
-    private TextView analysis;
+    private EditText urlInput, bankrollInput;
+    private TextView status, analysis;
     private WebView webView;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private String lastSignature = "";
@@ -36,39 +40,38 @@ public class MainActivity extends Activity {
       (function() {
         try {
           const visible = e => {
-            const r = e.getBoundingClientRect();
-            const s = getComputedStyle(e);
-            return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+            const r=e.getBoundingClientRect(), s=getComputedStyle(e);
+            return r.width>0 && r.height>0 && s.visibility!=='hidden' && s.display!=='none';
           };
           const odd = t => {
-            const v = String(t || '').trim().replace(',', '.');
-            return /^\\d{1,3}(?:\\.\\d{1,3})?$/.test(v) && Number(v) >= 1.01 && Number(v) <= 1000;
+            const v=String(t||'').trim().replace(',','.');
+            return /^\\d{1,3}(?:\\.\\d{1,3})?$/.test(v) && Number(v)>=1.01 && Number(v)<=1000;
           };
-          const leaves = [...document.querySelectorAll('button,[role="button"],a,span,div')]
-            .filter(e => visible(e) && odd(e.innerText || e.textContent) &&
-              ![...e.children].some(c => odd(c.innerText || c.textContent)));
-          const groups = new Map();
-          for (const el of leaves) {
-            let p = el.parentElement, chosen = null;
-            for (let depth = 0; p && depth < 6; depth++, p = p.parentElement) {
-              const os = [...p.querySelectorAll('button,[role="button"],a,span,div')]
-                .filter(x => visible(x) && odd(x.innerText || x.textContent) &&
-                  ![...x.children].some(c => odd(c.innerText || c.textContent)));
-              const vals = os.map(x => String(x.innerText || x.textContent).trim().replace(',', '.'));
-              if (vals.length >= 2 && vals.length <= 4) { chosen = {node:p, odds:vals}; break; }
+          const leaves=[...document.querySelectorAll('button,[role="button"],a,span,div')]
+            .filter(e=>visible(e) && odd(e.innerText||e.textContent) &&
+              ![...e.children].some(c=>odd(c.innerText||c.textContent)));
+          const groups=new Map();
+          for(const el of leaves) {
+            let p=el.parentElement, chosen=null;
+            for(let depth=0;p && depth<5;depth++,p=p.parentElement) {
+              const os=[...p.querySelectorAll('button,[role="button"],a,span,div')]
+                .filter(x=>visible(x) && odd(x.innerText||x.textContent) &&
+                  ![...x.children].some(c=>odd(c.innerText||c.textContent)));
+              const vals=os.map(x=>String(x.innerText||x.textContent).trim().replace(',','.'));
+              if(vals.length>=2 && vals.length<=3) { chosen={node:p,odds:vals}; break; }
             }
-            if (chosen) {
-              const text = String(chosen.node.innerText || chosen.node.textContent || '').trim().slice(0, 500);
-              const key = chosen.odds.join('|') + '::' + text;
-              if (!groups.has(key)) groups.set(key, {text:text, odds:chosen.odds});
+            if(chosen) {
+              const raw=String(chosen.node.innerText||chosen.node.textContent||'')
+                .replace(/\\s+/g,' ').trim().slice(0,420);
+              const key=chosen.odds.join('|')+'::'+raw;
+              if(!groups.has(key)) groups.set(key,{text:raw,odds:chosen.odds});
             }
           }
-          const body = String(document.body ? document.body.innerText : '').slice(0, 14000);
-          const payload = {url:location.href, title:document.title, body:body,
-            groups:[...groups.values()].slice(0,100)};
-          if (window.OddsBridge) window.OddsBridge.onData(JSON.stringify(payload));
-        } catch (e) {
-          if (window.OddsBridge) window.OddsBridge.onData(JSON.stringify({error:String(e)}));
+          const payload={url:location.href,title:document.title,
+            groups:[...groups.values()].slice(0,80)};
+          if(window.OddsBridge) window.OddsBridge.onData(JSON.stringify(payload));
+        } catch(e) {
+          if(window.OddsBridge) window.OddsBridge.onData(JSON.stringify({error:String(e)}));
         }
       })();
     """;
@@ -78,242 +81,257 @@ public class MainActivity extends Activity {
         buildUi();
     }
 
-    private int dp(float value) {
-        return (int)(value * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(float v) {
+        return (int)(v*getResources().getDisplayMetrics().density+0.5f);
+    }
+
+    private TextView label(String text, int size, int color, boolean bold) {
+        TextView t=new TextView(this);
+        t.setText(text); t.setTextSize(size); t.setTextColor(color);
+        if(bold) t.setTypeface(null, Typeface.BOLD);
+        return t;
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
+        LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(10), dp(14), dp(8));
-        root.setBackgroundColor(Color.rgb(248, 250, 252));
+        root.setPadding(dp(14),dp(10),dp(14),dp(8));
+        root.setBackgroundColor(Color.rgb(246,248,251));
 
-        TextView title = new TextView(this);
-        title.setText("OddsAnalyzer");
-        title.setTextSize(25);
-        title.setTextColor(Color.rgb(15, 23, 42));
-        title.setPadding(0, 0, 0, dp(8));
-        root.addView(title);
+        root.addView(label("تحلیل‌گر ضرایب",23,Color.rgb(15,23,42),true));
+        TextView intro=label("لینک مسابقه را وارد کن تا بازارها و ضرایب قابل مشاهده بررسی شوند.",13,Color.rgb(71,85,105),false);
+        intro.setPadding(0,dp(4),0,dp(7)); root.addView(intro);
 
-        urlInput = new EditText(this);
-        urlInput.setSingleLine(true);
-        urlInput.setTextSize(14);
-        urlInput.setHint("لینک مسابقه 1xBet را وارد کنید");
-        root.addView(urlInput, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        urlInput=new EditText(this);
+        urlInput.setSingleLine(true); urlInput.setTextSize(14);
+        urlInput.setHint("لینک کامل مسابقه را اینجا وارد کن");
+        root.addView(urlInput,new LinearLayout.LayoutParams(-1,dp(50)));
 
-        bankrollInput = new EditText(this);
-        bankrollInput.setSingleLine(true);
-        bankrollInput.setInputType(8194);
-        bankrollInput.setText("100");
-        bankrollInput.setHint("سرمایه فرضی برای محاسبه");
-        root.addView(bankrollInput, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        bankrollInput=new EditText(this);
+        bankrollInput.setSingleLine(true); bankrollInput.setInputType(8194);
+        bankrollInput.setText("100"); bankrollInput.setHint("مبلغ فرضی سرمایه");
+        root.addView(bankrollInput,new LinearLayout.LayoutParams(-1,dp(48)));
 
-        Button analyzeButton = new Button(this);
-        analyzeButton.setText("بارگذاری و بررسی مسابقه");
-        root.addView(analyzeButton);
-        analyzeButton.setOnClickListener(v -> loadMatch());
+        Button button=new Button(this);
+        button.setText("بررسی مسابقه");
+        root.addView(button);
+        button.setOnClickListener(v->loadMatch());
 
-        status = new TextView(this);
-        status.setText("لینک مسابقه را وارد کنید.");
-        status.setTextColor(Color.rgb(51, 65, 85));
-        status.setTextSize(13);
-        status.setPadding(0, dp(5), 0, dp(5));
-        root.addView(status);
+        status=label("آماده بررسی؛ لینک مسابقه را وارد کن.",13,Color.rgb(51,65,85),false);
+        status.setPadding(0,dp(7),0,dp(7)); root.addView(status);
 
-        ScrollView resultScroll = new ScrollView(this);
-        analysis = new TextView(this);
-        analysis.setTextColor(Color.rgb(15, 23, 42));
-        analysis.setTextSize(13);
-        analysis.setText("نتیجه تحلیل پس از بارگذاری بازارها نمایش داده می‌شود.");
-        analysis.setPadding(dp(10), dp(8), dp(10), dp(8));
+        ScrollView resultScroll=new ScrollView(this);
+        analysis=label("بعد از بررسی، هر بازار با نام، توضیح ساده و نتیجه محاسبه در این قسمت نمایش داده می‌شود.",14,Color.rgb(30,41,59),false);
+        analysis.setPadding(dp(10),dp(10),dp(10),dp(14));
         resultScroll.addView(analysis);
-        root.addView(resultScroll, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(190)));
+        root.addView(resultScroll,new LinearLayout.LayoutParams(-1,dp(235)));
 
-        webView = new WebView(this);
+        webView=new WebView(this);
         webView.setBackgroundColor(Color.WHITE);
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
+        WebSettings settings=webView.getSettings();
+        settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true);
         settings.setLoadsImagesAutomatically(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        webView.addJavascriptInterface(new OddsBridge(), "OddsBridge");
+        webView.addJavascriptInterface(new OddsBridge(),"OddsBridge");
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView view, String url) {
-                status.setText("صفحه باز شد؛ در حال شناسایی بازارها و ضرایب...");
-                polls = 0;
-                lastSignature = "";
-                handler.postDelayed(pollTask, 1800);
+        webView.setWebViewClient(new WebViewClient(){
+            @Override public void onPageFinished(WebView view,String url){
+                status.setText("صفحه باز شد؛ در حال پیدا کردن بازارها و ضرایب...");
+                polls=0; lastSignature="";
+                handler.postDelayed(pollTask,1600);
             }
         });
-        root.addView(webView, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
+        root.addView(webView,new LinearLayout.LayoutParams(-1,0,1f));
         setContentView(root);
     }
 
     private void loadMatch() {
-        String url = urlInput.getText().toString().trim();
-        if (url.isEmpty()) {
-            status.setText("ابتدا لینک مسابقه را وارد کنید.");
-            return;
-        }
+        String url=urlInput.getText().toString().trim();
+        if(url.isEmpty()){status.setText("اول لینک مسابقه را وارد کن.");return;}
         try {
-            URI uri = URI.create(url);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) ||
-                uri.getHost() == null ||
-                !(uri.getHost().toLowerCase(Locale.ROOT).contains("1xbet") ||
-                  uri.getHost().toLowerCase(Locale.ROOT).contains("bet"))) {
-                status.setText("لطفاً یک لینک HTTPS معتبر از صفحه مسابقه وارد کنید.");
-                return;
+            URI u=URI.create(url);
+            String host=u.getHost()==null?"":u.getHost().toLowerCase(Locale.ROOT);
+            if(!"https".equalsIgnoreCase(u.getScheme()) ||
+               !(host.contains("1xbet") || host.contains("bet"))){
+                status.setText("لینک معتبر HTTPS از صفحه مسابقه وارد کن."); return;
             }
-        } catch (Exception e) {
-            status.setText("ساختار لینک معتبر نیست.");
-            return;
-        }
+        } catch(Exception e){status.setText("فرمت لینک درست نیست.");return;}
         handler.removeCallbacks(pollTask);
-        analysis.setText("در حال بارگذاری صفحه مسابقه...");
+        analysis.setText("در حال باز کردن مسابقه و خواندن ضرایب...");
         status.setText("در حال اتصال به سایت...");
         webView.loadUrl(url);
     }
 
-    private final Runnable pollTask = new Runnable() {
-        @Override public void run() {
-            if (webView == null || polls++ > 24) {
-                status.setText("پایان زمان بررسی. اگر بازارها دیده نمی‌شوند، ممکن است سایت دسترسی WebView را محدود کرده باشد.");
+    private final Runnable pollTask=new Runnable(){
+        @Override public void run(){
+            if(webView==null || polls++>24){
+                status.setText("زمان بررسی تمام شد. ممکن است سایت اجازه خواندن ضرایب را ندهد.");
                 return;
             }
-            webView.evaluateJavascript(EXTRACT_SCRIPT, null);
-            handler.postDelayed(this, 2500);
+            webView.evaluateJavascript(EXTRACT_SCRIPT,null);
+            handler.postDelayed(this,2300);
         }
     };
 
     private class OddsBridge {
-        @JavascriptInterface public void onData(String json) {
-            runOnUiThread(() -> processExtractedData(json));
+        @JavascriptInterface public void onData(String json){
+            runOnUiThread(()->processExtractedData(json));
         }
     }
 
-    private void processExtractedData(String json) {
-        try {
-            JSONObject data = new JSONObject(json);
-            if (data.has("error")) {
-                status.setText("خطا در خواندن صفحه: " + data.optString("error"));
+    private void processExtractedData(String json){
+        try{
+            JSONObject data=new JSONObject(json);
+            if(data.has("error")){status.setText("خواندن صفحه ناموفق بود: "+data.optString("error"));return;}
+            JSONArray groups=data.optJSONArray("groups");
+            if(groups==null || groups.length()==0){
+                if(polls>=8) status.setText("صفحه باز است، اما هنوز ضریب قابل تشخیصی پیدا نشده است.");
                 return;
             }
-            JSONArray groups = data.optJSONArray("groups");
-            if (groups == null || groups.length() == 0) {
-                if (polls >= 8) {
-                    status.setText("صفحه باز است، اما هنوز بازار قابل‌استخراجی پیدا نشده است. صفحه را در پایین بررسی کنید.");
-                }
-                return;
-            }
-            String signature = groups.toString();
-            if (signature.equals(lastSignature)) return;
-            lastSignature = signature;
-            renderAnalysis(data, groups);
-        } catch (Exception e) {
-            status.setText("داده صفحه قابل‌تجزیه نبود.");
-        }
+            String sig=groups.toString();
+            if(sig.equals(lastSignature)) return;
+            lastSignature=sig;
+            renderAnalysis(data,groups);
+        }catch(Exception e){status.setText("اطلاعات صفحه قابل خواندن نبود.");}
     }
 
-    private void renderAnalysis(JSONObject data, JSONArray groups) {
-        double bankroll = 100.0;
-        try { bankroll = Double.parseDouble(bankrollInput.getText().toString().trim()); }
-        catch (Exception ignored) {}
-        if (!(bankroll > 0) || Double.isInfinite(bankroll)) bankroll = 100.0;
+    private void renderAnalysis(JSONObject data,JSONArray groups){
+        double bankroll=100;
+        try{bankroll=Double.parseDouble(bankrollInput.getText().toString().trim());}
+        catch(Exception ignored){}
+        if(!(bankroll>0) || Double.isInfinite(bankroll) || Double.isNaN(bankroll)) bankroll=100;
 
-        ArrayList<Market> markets = new ArrayList<>();
-        for (int i = 0; i < groups.length(); i++) {
-            JSONObject g = groups.optJSONObject(i);
-            if (g == null) continue;
-            JSONArray oddsArray = g.optJSONArray("odds");
-            if (oddsArray == null || oddsArray.length() < 2 || oddsArray.length() > 3) continue;
-            ArrayList<Double> odds = new ArrayList<>();
-            for (int j = 0; j < oddsArray.length(); j++) {
-                double o = parseOdd(oddsArray.optString(j));
-                if (o >= 1.01 && o <= 1000) odds.add(o);
+        ArrayList<Market> markets=new ArrayList<>();
+        for(int i=0;i<groups.length();i++){
+            JSONObject g=groups.optJSONObject(i); if(g==null) continue;
+            JSONArray a=g.optJSONArray("odds");
+            if(a==null || a.length()<2 || a.length()>3) continue;
+            ArrayList<Double> odds=new ArrayList<>();
+            for(int j=0;j<a.length();j++){
+                double x=parseOdd(a.optString(j));
+                if(x>=1.01 && x<=1000) odds.add(x);
             }
-            if (odds.size() == oddsArray.length()) {
-                String text = g.optString("text", "").replaceAll("\\s+", " ").trim();
-                markets.add(new Market(text, odds));
+            if(odds.size()==a.length()){
+                String raw=g.optString("text","").replaceAll("\\s+"," ").trim();
+                String title=makeReadableTitle(raw);
+                markets.add(new Market(title,raw,odds));
             }
         }
 
-        StringBuilder out = new StringBuilder();
-        out.append("مسابقه: ").append(data.optString("title", "نامشخص")).append("\n");
-        out.append("گروه‌های بازار قابل‌خواندن: ").append(markets.size()).append("\n\n");
-        if (markets.isEmpty()) {
-            out.append("فعلاً هیچ بازار ۲ یا ۳ نتیجه‌ای با ساختار قابل‌اعتماد پیدا نشد. ممکن است ضرایب هنوز بارگذاری نشده باشند یا ساختار سایت تغییر کرده باشد.\n");
+        SpannableStringBuilder out=new SpannableStringBuilder();
+        addLine(out,"مسابقه: "+data.optString("title","نامشخص")+"\n",Color.rgb(15,23,42),true);
+        addLine(out,"تعداد بازارهای پیدا شده: "+markets.size()+"\n",Color.rgb(71,85,105),false);
+        addLine(out,"راهنما: ✅ یعنی فقط از نظر محاسباتی گزینه امیدوارکننده است؛ قبل از شرط باید نام و همه نتیجه‌های بازار را بررسی کنی.\n\n",Color.rgb(71,85,105),false);
+
+        if(markets.isEmpty()){
+            addLine(out,"بازاری برای تحلیل پیدا نشد. ممکن است ضرایب هنوز بارگذاری نشده باشند یا سایت دسترسی را محدود کرده باشد.\n",Color.rgb(180,83,9),true);
         } else {
-            Market best = null;
-            for (Market m : markets) {
-                m.sum = 0;
-                for (double o : m.odds) m.sum += 1.0 / o;
-                if (best == null || m.sum < best.sum) best = m;
-            }
-            int shown = Math.min(12, markets.size());
-            out.append("بهترین حاشیه ضمنیِ شناسایی‌شده (نه لزوماً بهترین شرط):\n");
-            for (int i = 0; i < shown; i++) {
-                Market m = markets.get(i);
-                out.append("\n").append(i + 1).append(") ").append(shortText(m.text, 110)).append("\n");
-                out.append("ضرایب: ");
-                for (int j = 0; j < m.odds.size(); j++) {
-                    if (j > 0) out.append(" | ");
-                    out.append(String.format(Locale.US, "%.2f", m.odds.get(j)));
+            int shown=Math.min(18,markets.size());
+            for(int i=0;i<shown;i++){
+                Market m=markets.get(i);
+                m.sum=0; for(double odd:m.odds) m.sum+=1.0/odd;
+                boolean named=hasRecognizableOutcomes(m.raw,m.odds.size());
+                boolean candidate=m.sum<0.999999 && named;
+                addLine(out,(candidate?"✅ ":"🔎 ")+"بازار "+(i+1)+"\n",candidate?Color.rgb(21,128,61):Color.rgb(37,99,235),true);
+                addLine(out,"این شرط درباره چیست؟\n",Color.rgb(51,65,85),true);
+                addLine(out,m.title+"\n",Color.rgb(15,23,42),true);
+                addLine(out,explainMarket(m.raw,m.odds.size())+"\n",Color.rgb(71,85,105),false);
+                addLine(out,"ضرایب پیدا شده: ",Color.rgb(51,65,85),true);
+                for(int j=0;j<m.odds.size();j++){
+                    if(j>0)addLine(out,"  |  ",Color.rgb(100,116,139),false);
+                    addLine(out,String.format(Locale.US,"%.2f",m.odds.get(j)),Color.rgb(15,23,42),true);
                 }
-                out.append("\nمجموع احتمال ضمنی: ").append(String.format(Locale.US, "%.2f%%", m.sum * 100));
-                if (m.sum < 0.999999) {
-                    double profitPct = (1.0 / m.sum - 1.0) * 100.0;
-                    out.append("\nآربیتراژ احتمالی: ").append(String.format(Locale.US, "%.2f%%", profitPct));
-                    double payout = bankroll / m.sum;
-                    out.append("\nتقسیم سرمایه فرضی ").append(String.format(Locale.US, "%.2f", bankroll)).append(": ");
-                    for (int j = 0; j < m.odds.size(); j++) {
-                        if (j > 0) out.append(" / ");
-                        out.append(String.format(Locale.US, "%.2f", payout / m.odds.get(j)));
+                addLine(out,"\nمجموع احتمال ضمنی: "+String.format(Locale.US,"%.2f%%",m.sum*100)+"\n",Color.rgb(51,65,85),false);
+                if(candidate){
+                    double theoretical=(1.0/m.sum-1.0)*100.0;
+                    double totalReturn=bankroll/m.sum;
+                    addLine(out,"از نظر ریاضی نامزد آربیتراژ است؛ سود نظری حدود "+String.format(Locale.US,"%.2f%%",theoretical)+" است.\n",Color.rgb(21,128,61),true);
+                    addLine(out,"تقسیم مبلغ فرضی "+String.format(Locale.US,"%.2f",bankroll)+": ",Color.rgb(51,65,85),false);
+                    for(int j=0;j<m.odds.size();j++){
+                        if(j>0)addLine(out," / ",Color.rgb(100,116,139),false);
+                        addLine(out,String.format(Locale.US,"%.2f",totalReturn/m.odds.get(j)),Color.rgb(21,128,61),true);
                     }
-                    out.append("\n");
-                } else {
-                    out.append("\nآربیتراژ از این ضرایب به‌تنهایی تأیید نمی‌شود.\n");
+                    addLine(out,"\n",Color.rgb(51,65,85),false);
+                }else if(m.sum<0.999999){
+                    addLine(out,"⚠️ مجموع ضرایب ظاهراً جذاب است، اما نام یا کامل بودن نتیجه‌های بازار مشخص نیست؛ تیک تأیید نمی‌گیرد.\n",Color.rgb(180,83,9),true);
+                }else{
+                    addLine(out,"❌ با این ضرایب آربیتراژ محاسباتی دیده نمی‌شود.\n",Color.rgb(185,28,28),true);
                 }
+                addLine(out,"────────────────────────\n",Color.rgb(148,163,184),false);
             }
-            out.append("\nتوجه: گروه‌بندی خودکار صفحه ممکن است بازارهای نامرتبط را کنار هم قرار دهد. قبل از هر تصمیم، نام بازار و کامل‌بودن تمام نتایج را دستی تأیید کنید. هیچ سودی تضمین‌شده نیست.");
         }
-        analysis.setText(out.toString());
-        status.setText("بررسی انجام شد؛ " + markets.size() + " گروه قابل‌بررسی شناسایی شد.");
+        addLine(out,"نکته مهم: این نسخه نام بازار و نتیجه‌ها را از متن صفحه حدس می‌زند. تیک سبز تأیید قطعی برد یا سود نیست. اگر سایت ضرایب ناقص نشان دهد، شرط‌ها تغییر کنند یا بازارها دقیقاً متناظر نباشند، محاسبه معتبر نیست.\n",Color.rgb(180,83,9),true);
+        analysis.setText(out);
+        status.setText("بررسی تمام شد؛ "+markets.size()+" گروه ضریب پیدا شد.");
     }
 
-    private double parseOdd(String s) {
-        try { return Double.parseDouble(s.trim().replace(',', '.')); }
-        catch (Exception e) { return -1; }
+    private void addLine(SpannableStringBuilder b,String s,int color,boolean bold){
+        int start=b.length(); b.append(s);
+        b.setSpan(new ForegroundColorSpan(color),start,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if(bold)b.setSpan(new StyleSpan(Typeface.BOLD),start,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
-    private String shortText(String s, int max) {
-        if (s == null || s.isEmpty()) return "بازار بدون عنوان";
-        return s.length() <= max ? s : s.substring(0, max) + "...";
+    private String makeReadableTitle(String raw){
+        if(raw==null || raw.trim().isEmpty()) return "عنوان بازار در صفحه مشخص نبود";
+        String s=raw.replaceAll("(?<![A-Za-z])\\d{1,3}(?:[.,]\\d{1,3})?(?![A-Za-z])"," ");
+        s=s.replaceAll("\\s+"," ").replaceAll("^[|:/,\\- ]+|[|:/,\\- ]+$","");
+        if(s.length()>145)s=s.substring(0,145)+"…";
+        return s.isEmpty()?"عنوان بازار در صفحه مشخص نبود":s;
     }
 
-    private static class Market {
-        final String text;
+    private boolean hasRecognizableOutcomes(String raw,int count){
+        if(raw==null)return false;
+        String s=raw.toLowerCase(Locale.ROOT);
+        if(count==2){
+            return (s.contains("over")&&s.contains("under")) ||
+                   (s.contains("بیشتر")&&s.contains("کمتر")) ||
+                   (s.contains("yes")&&s.contains("no")) ||
+                   (s.contains("بله")&&s.contains("خیر"));
+        }
+        if(count==3){
+            return (s.contains("home")&&s.contains("draw")&&s.contains("away")) ||
+                   (s.contains("میزبان")&&s.contains("مساوی")&&s.contains("میهمان")) ||
+                   (s.contains("1")&&s.contains("x")&&s.contains("2"));
+        }
+        return false;
+    }
+
+    private String explainMarket(String raw,int count){
+        if(raw==null || raw.isEmpty()) return "متن بازار از سایت به‌طور کامل خوانده نشد؛ عنوان و موضوع شرط نامشخص است.";
+        String s=raw.toLowerCase(Locale.ROOT);
+        if((s.contains("over")&&s.contains("under")) || (s.contains("بیشتر")&&s.contains("کمتر")))
+            return "این بازار ظاهراً درباره بیشتر یا کمتر بودن یک مقدار مشخص (مثلاً تعداد گل) است. عدد خط شرط را در صفحه کنترل کن.";
+        if((s.contains("yes")&&s.contains("no")) || (s.contains("بله")&&s.contains("خیر")))
+            return "این بازار ظاهراً پاسخ بله/خیر به یک اتفاق در مسابقه را می‌سنجد. متن دقیق اتفاق را بررسی کن.";
+        if(s.contains("home")&&s.contains("draw")&&s.contains("away"))
+            return "این بازار ظاهراً نتیجه نهایی مسابقه است: برد میزبان، مساوی یا برد میهمان.";
+        if(s.contains("میزبان")&&s.contains("مساوی")&&s.contains("میهمان"))
+            return "این بازار ظاهراً نتیجه نهایی مسابقه است: برد میزبان، مساوی یا برد میهمان.";
+        if(s.contains("corner")||s.contains("کرنر"))
+            return "این بازار به تعداد یا نتیجه کرنرها مربوط است؛ خط و بازه زمانی بازار را بررسی کن.";
+        if(s.contains("card")||s.contains("کارت"))
+            return "این بازار به کارت‌های مسابقه مربوط است؛ نوع کارت و بازه زمانی را بررسی کن.";
+        return "موضوع دقیق شرط از متن قابل استخراج با اطمینان مشخص نیست. توضیح بالای بازار را در صفحه مسابقه با دقت تطبیق بده.";
+    }
+
+    private double parseOdd(String s){
+        try{return Double.parseDouble(s.trim().replace(',','.'));}
+        catch(Exception e){return -1;}
+    }
+
+    private static class Market{
+        final String title,raw;
         final ArrayList<Double> odds;
         double sum;
-        Market(String text, ArrayList<Double> odds) { this.text = text; this.odds = odds; }
+        Market(String title,String raw,ArrayList<Double> odds){this.title=title;this.raw=raw;this.odds=odds;}
     }
 
-    @Override public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+    @Override public void onBackPressed(){
+        if(webView!=null && webView.canGoBack())webView.goBack(); else super.onBackPressed();
     }
 
-    @Override protected void onDestroy() {
+    @Override protected void onDestroy(){
         handler.removeCallbacksAndMessages(null);
-        if (webView != null) {
-            webView.removeJavascriptInterface("OddsBridge");
-            webView.destroy();
-        }
+        if(webView!=null){webView.removeJavascriptInterface("OddsBridge");webView.destroy();}
         super.onDestroy();
     }
 }

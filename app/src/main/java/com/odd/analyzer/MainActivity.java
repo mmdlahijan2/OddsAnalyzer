@@ -329,7 +329,7 @@ public class MainActivity extends Activity {
             add(out,"────────────────────────\n",Color.rgb(148,163,184),false);
         }
         add(out,"هشدار مهم: هوش مصنوعی ممکن است عنوان یا گزینه را اشتباه تفسیر کند. برنامه هویت واقعی مسابقه، قوانین تسویه، شرایط مساوی/لغو و زنده‌بودن ضرایب را مستقلاً تأیید نمی‌کند. همه موارد را دستی بررسی کن؛ تیک سبز تضمین سود یا امکان ثبت شرط نیست.\n",Color.rgb(180,83,9),true);
-        analysis.setText(out);status.setText("مقایسه تمام شد؛ "+common.size()+" بازار مشترک پیدا شد و "+arb+" نامزد آربیتراژ محاسباتی.");
+        analysis.setText(out);status.setText("مقایسه تمام شد؛ "+idx+" بازار مشترک معتبر پیدا شد و "+arb+" نامزد آربیتراژ محاسباتی.");
     }
     private String extractionReason(JSONArray groups,JSONObject d){
         if(groups!=null&&groups.length()>0)return "استخراج موفق";

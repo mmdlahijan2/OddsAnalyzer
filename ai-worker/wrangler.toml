@@ -1,7 +1,0 @@
-name = "oddsanalyzer-ai"
-main = "src/index.js"
-compatibility_date = "2026-11-16"
-workers_dev = true
-
-[secrets]
-required = ["OPENAI_API_KEY"]

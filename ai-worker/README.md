@@ -3,11 +3,12 @@
 This worker keeps the OpenAI API key off the Android device. The Android app sends extracted market text and ordered odds to this endpoint; the worker returns schema-constrained canonical labels. Arbitrage arithmetic remains in the Android app.
 
 ## Deploy
-1. Create a Cloudflare Worker and paste `src/index.js` (or deploy this folder with Wrangler).
-2. Set the secret: `npx wrangler secret put OPENAI_API_KEY`.
-3. Optional model variable: `OPENAI_MODEL=gpt-6-astra` (change only to a model enabled for your API project).
-4. Deploy. The endpoint will be `https://<worker-name>.<account>.workers.dev/match`.
-5. Paste that HTTPS endpoint into the app's AI endpoint field.
+1. Install Node.js, then open a terminal in `ai-worker/`.
+2. Run `npx wrangler login` to connect your Cloudflare account.
+3. Create the encrypted API-key secret: `npx wrangler secret put OPENAI_API_KEY` and paste your OpenAI API key only into the terminal prompt. Never send it in chat or add it to GitHub.
+4. Deploy with `npx wrangler deploy`.
+5. Copy the deployed Worker URL and append `/match`, then paste that HTTPS address into the app's AI endpoint field.
+6. In Cloudflare, configure a rate-limiting rule for this Worker before regular/public use. The API key is stored only as a Worker secret; it is not embedded in the APK.
 
 Do not put the OpenAI key in the APK, GitHub source, or the endpoint field. Add rate limits / authentication before public distribution; CORS is not authentication. The worker validates request size, site count, group indexes and odds/outcome array lengths. The app must still reject low-confidence or ambiguous matches.
 

@@ -246,6 +246,11 @@ public class MainActivity extends Activity {
         if("UNKNOWN".equals(type)||"UNKNOWN".equals(period)||line.isEmpty()||scope.isEmpty())return null;
         JSONArray outcomes=m.optJSONArray("outcomes"),odds=group.optJSONArray("odds");
         if(outcomes==null||odds==null||outcomes.length()!=odds.length()||outcomes.length()<2||outcomes.length()>3)return null;
+        if(!("MATCH".equalsIgnoreCase(scope)||"TEAM".equalsIgnoreCase(scope)))return null;
+        for(int i=0;i<odds.length();i++){try{double v=Double.parseDouble(odds.optString(i).replace(",","."));if(!Double.isFinite(v)||v<=1.0||v>1000)return null;}catch(Exception badOdds){return null;}}
+        if(("BTTS".equals(type)||"MATCH_RESULT".equals(type)||"DOUBLE_CHANCE".equals(type))&&!"NONE".equalsIgnoreCase(line))return null;
+        if("TEAM_TOTAL".equals(type)&&!"TEAM".equalsIgnoreCase(scope))return null;
+        if(!"TEAM_TOTAL".equals(type)&&!"TEAM".equalsIgnoreCase(scope)&&!"MATCH".equalsIgnoreCase(scope))return null;
         java.util.HashSet<String> unique=new java.util.HashSet<>();
         for(int i=0;i<outcomes.length();i++){String o=outcomes.optString(i,"UNKNOWN");if("UNKNOWN".equals(o)||!unique.add(o))return null;}
         if("TOTAL_GOALS".equals(type)||"TEAM_TOTAL".equals(type)){
